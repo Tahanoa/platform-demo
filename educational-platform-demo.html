@@ -818,7 +818,31 @@
             align-items: center;
             gap: 16px;
         }
-    </style>
+
+    /* Print Styles */
+    @media print {
+        header, .sidebar, .mobile-header, .page-header button, .btn, .no-print {
+            display: none !important;
+        }
+        body {
+            background: white !important;
+            color: black !important;
+        }
+        .main-wrapper {
+            margin-right: 0 !important;
+            padding: 0 !important;
+        }
+        .card {
+            border: 1px solid #ccc !important;
+            box-shadow: none !important;
+        }
+        .modal-content {
+            border: none !important;
+            box-shadow: none !important;
+        }
+    }
+
+</style>
 </head>
 <body class="theme-elementary">
 
@@ -1711,17 +1735,24 @@
                         </div>
                     </div>
 
-                    ${plan === 'highschool' ? `
+                    <div class="grid grid-2" style="margin-bottom:20px;">
                         <div class="card">
                             <div class="card-header">
-                                <div class="card-title"><i class="fa-solid fa-chart-line text-primary"></i> نمودار مقایسه‌ای میانگین نمرات کلاس‌ها</div>
-                                <span class="badge badge-info">تحلیل تحصیلی آمار دمو</span>
+                                <div class="card-title"><i class="fa-solid fa-chart-pie text-primary"></i> آمار وضعیت حضور و غیاب</div>
                             </div>
-                            <div class="card-body">
-                                <canvas id="highschoolChart" style="max-height:260px;"></canvas>
+                            <div class="card-body" style="height:220px; display:flex; align-items:center; justify-content:center;">
+                                <canvas id="attendancePieChart"></canvas>
                             </div>
                         </div>
-                    ` : ''}
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title"><i class="fa-solid fa-chart-simple text-primary"></i> مقایسه ظرفیت و تعداد فراگیران</div>
+                            </div>
+                            <div class="card-body" style="height:220px; display:flex; align-items:center; justify-content:center;">
+                                <canvas id="overviewBarChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="card">
                         <div class="card-header">
@@ -1769,25 +1800,44 @@
                     </div>
                 `;
 
-                if (plan === 'highschool') {
-                    setTimeout(() => {
-                        const ctx = document.getElementById('highschoolChart');
-                        if (ctx) {
-                            new Chart(ctx, {
+                setTimeout(() => {
+                        const pieCtx = document.getElementById('attendancePieChart');
+                        if (pieCtx) {
+                            const presentCount = (data.attendance || []).filter(a => a.status === 'present').length || 8;
+                            const absentCount = (data.attendance || []).filter(a => a.status === 'absent').length || 2;
+                            const lateCount = (data.attendance || []).filter(a => a.status === 'late' || a.status === 'excused').length || 1;
+                            new Chart(pieCtx, {
+                                type: 'doughnut',
+                                data: {
+                                    labels: ['حاضر', 'غایب', 'تأخیر/موجه'],
+                                    datasets: [{
+                                        data: [presentCount, absentCount, lateCount],
+                                        backgroundColor: ['#10b981', '#ef4444', '#f59e0b']
+                                    }]
+                                },
+                                options: { responsive: true, maintainAspectRatio: false }
+                            });
+                        }
+
+                        const barCtx = document.getElementById('overviewBarChart');
+                        if (barCtx) {
+                            const labels = (data.classes || data.courses || []).map(c => c.name || c.title || 'کلاس');
+                            const counts = (data.classes || data.courses || []).map(c => c.studentCount || c.enrolled || 15);
+                            new Chart(barCtx, {
                                 type: 'bar',
                                 data: {
-                                    labels: (data.classes || []).map(c => c.name),
+                                    labels: labels.length ? labels : ['کلاس A', 'کلاس B'],
                                     datasets: [{
-                                        label: 'میانگین معدل کلاس',
-                                        data: [18.75, 17.40],
-                                        backgroundColor: ['#1e40af', '#3b82f6']
+                                        label: 'تعداد فراگیران',
+                                        data: counts.length ? counts : [20, 15],
+                                        backgroundColor: 'rgba(79, 70, 229, 0.7)',
+                                        borderRadius: 6
                                     }]
                                 },
                                 options: { responsive: true, maintainAspectRatio: false }
                             });
                         }
                     }, 100);
-                }
             } else if (tab === 'classes') {
                 const list = data.classes || data.courses || [];
                 container.innerHTML = `
@@ -1987,7 +2037,7 @@
                                 <label class="form-label" style="margin:0;">تاریخ:</label>
                                 <input type="text" class="form-control" style="width:130px; display:inline-block;" value="${new Date().toLocaleDateString('fa-IR')}">
                             </div>
-                            <button class="btn btn-primary btn-sm" onclick="showToast('تغییرات حضور و غیاب ذخیره گردید.')">
+                            <button class="btn btn-primary btn-sm" onclick="saveAttendanceRecord('${plan}')">
                                 <i class="fa-solid fa-floppy-disk"></i> ثبت نهایی حضور و غیاب
                             </button>
                         </div>
@@ -3376,7 +3426,836 @@
         }
 
 
-        function renderCurrentTabContent() {
+
+
+// ==========================================
+// UPGRADED & MISSING WORKFLOW HANDLERS
+// ==========================================
+
+function deleteStudent(id, plan) {
+    if (!confirm('آیا از حذف این دانش‌آموز/هنرجو اطمینان دارید؟')) return;
+    if (plan === 'academy') {
+        DemoState.data.academy.trainees = (DemoState.data.academy.trainees || []).filter(s => s.id !== id);
+    } else {
+        DemoState.data[plan].students = (DemoState.data[plan].students || []).filter(s => s.id !== id);
+    }
+    DemoState.save();
+    showToast('شناسه با موفقیت حذف شد.', 'info');
+    renderCurrentTabContent();
+}
+
+function deleteTeacher(id, plan) {
+    if (!confirm('آیا از حذف این استاد/معلم اطمینان دارید؟')) return;
+    if (plan === 'academy') {
+        DemoState.data.academy.instructors = (DemoState.data.academy.instructors || []).filter(t => t.id !== id);
+    } else {
+        DemoState.data[plan].teachers = (DemoState.data[plan].teachers || []).filter(t => t.id !== id);
+    }
+    DemoState.save();
+    showToast('مدرس با موفقیت حذف شد.', 'info');
+    renderCurrentTabContent();
+}
+
+function deleteClass(id, plan) {
+    if (!confirm('آیا از حذف این کلاس/دوره اطمینان دارید؟')) return;
+    if (plan === 'academy') {
+        DemoState.data.academy.courses = (DemoState.data.academy.courses || []).filter(c => c.id !== id);
+    } else {
+        DemoState.data[plan].classes = (DemoState.data[plan].classes || []).filter(c => c.id !== id);
+    }
+    DemoState.save();
+    showToast('کلاس/دوره با موفقیت حذف شد.', 'info');
+    renderCurrentTabContent();
+}
+
+function editStudentModal(id, plan) {
+    const list = plan === 'academy' ? (DemoState.data.academy.trainees || []) : (DemoState.data[plan].students || []);
+    const std = list.find(s => s.id === id);
+    if (!std) return;
+
+    const body = `
+        <div class="form-group">
+            <label class="form-label">نام و خانوادگی:</label>
+            <input type="text" id="std-edit-name" class="form-control" value="${std.name || ''}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">کد دانش‌آموزی / ملی:</label>
+                <input type="text" id="std-edit-code" class="form-control" value="${std.code || ''}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">نام ولی / سرپرست:</label>
+                <input type="text" id="std-edit-parent" class="form-control" value="${std.parentName || ''}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">شماره تماس ولی:</label>
+            <input type="text" id="std-edit-phone" class="form-control" value="${std.parentPhone || ''}">
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-primary" onclick="saveEditStudent('${id}', '${plan}')">ذخیره تغییرات</button>
+    `;
+    openModal('ویرایش اطلاعات دانش‌آموز', body, footer);
+}
+
+function saveEditStudent(id, plan) {
+    const list = plan === 'academy' ? (DemoState.data.academy.trainees || []) : (DemoState.data[plan].students || []);
+    const std = list.find(s => s.id === id);
+    if (!std) return;
+
+    std.name = document.getElementById('std-edit-name').value.trim() || std.name;
+    std.code = document.getElementById('std-edit-code').value.trim() || std.code;
+    std.parentName = document.getElementById('std-edit-parent').value.trim() || std.parentName;
+    std.parentPhone = document.getElementById('std-edit-phone').value.trim() || std.parentPhone;
+
+    DemoState.save();
+    closeModal();
+    showToast('اطلاعات دانش‌آموز بروزرسانی شد.');
+    renderCurrentTabContent();
+}
+
+function saveAttendanceRecord(plan) {
+    const selects = document.querySelectorAll('.att-status-select');
+    if (selects.length === 0) return showToast('دانش‌آموزی برای ثبت حضور و غیاب یافت نشد.', 'warning');
+
+    const today = '۱۴۰۳/08/02';
+    const classId = document.getElementById('att-class-select') ? document.getElementById('att-class-select').value : 'c_1';
+
+    if (!DemoState.data[plan].attendance) DemoState.data[plan].attendance = [];
+
+    selects.forEach(sel => {
+        const studentId = sel.getAttribute('data-student-id');
+        const studentName = sel.getAttribute('data-student-name');
+        const status = sel.value;
+
+        // remove existing today's attendance for this student
+        DemoState.data[plan].attendance = DemoState.data[plan].attendance.filter(a => !(a.studentId === studentId && a.date === today));
+
+        DemoState.data[plan].attendance.push({
+            id: `att_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+            date: today,
+            classId: classId,
+            studentId: studentId,
+            studentName: studentName,
+            status: status,
+            unexcused: status === 'absent'
+        });
+
+        if (status === 'absent') {
+            DemoState.data.smsLogs.unshift({
+                id: `sms_${Date.now()}`,
+                recipientPhone: '۰۹۱۲XXXXXXX',
+                recipientName: `والدین ${studentName}`,
+                message: `اولیاء محترم، دانش‌آموز ${studentName} در تاریخ ${today} غیبت داشته است.`,
+                status: 'ارسال‌شده (دمو)',
+                date: `${today} - ${new Date().toLocaleTimeString('fa-IR', {hour:'2-digit', minute:'2-digit'})}`
+            });
+        }
+    });
+
+    DemoState.save();
+    showToast('لیست حضور و غیاب با موفقیت ثبت شد و پیامک‌های اطلاع‌رسانی ارسال گردید.');
+    renderCurrentTabContent();
+}
+
+function openCreateAssignmentModal(plan) {
+    const isElementary = (plan === 'elementary');
+    const body = `
+        <div class="form-group">
+            <label class="form-label">عنوان تکلیف:</label>
+            <input type="text" id="asgn-title" class="form-control" placeholder="${isElementary ? 'مثال: تمرین روان‌خوانی و خط خوش' : 'مثال: حل مسائل فصل دوم فیزیک'}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">نام درس:</label>
+                <input type="text" id="asgn-subject" class="form-control" placeholder="ریاضی / علوم / فارسی / فیزیک">
+            </div>
+            <div class="form-group">
+                <label class="form-label">مهلت تحویل:</label>
+                <input type="text" id="asgn-deadline" class="form-control" value="۱۴۰۳/08/15">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">توضیحات و دستورالعمل تکلیف:</label>
+            <textarea id="asgn-desc" class="form-control" rows="3" placeholder="توضیحات مربوط به تمرینات..."></textarea>
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-primary" onclick="saveNewAssignment('${plan}')">ایجاد تکلیف</button>
+    `;
+    openModal('ایجاد تکلیف و فعالیت جدید', body, footer);
+}
+
+function saveNewAssignment(plan) {
+    const title = document.getElementById('asgn-title').value.trim();
+    const subject = document.getElementById('asgn-subject').value.trim();
+    const deadline = document.getElementById('asgn-deadline').value.trim();
+    const desc = document.getElementById('asgn-desc').value.trim();
+
+    if (!title) return showToast('عنوان تکلیف را وارد کنید.', 'error');
+
+    if (!DemoState.data[plan].assignments) DemoState.data[plan].assignments = [];
+
+    DemoState.data[plan].assignments.push({
+        id: `asgn_${Date.now()}`,
+        title: title,
+        subject: subject || 'عمومی',
+        deadline: deadline || '۱۴۰۳/08/20',
+        description: desc || 'توضیحاتی ثبت نشده است.',
+        submissions: []
+    });
+
+    DemoState.save();
+    closeModal();
+    showToast('تکلیف جدید با موفقیت ایجاد و برای دانش‌آموزان فعال شد.');
+    renderCurrentTabContent();
+}
+
+function openSubmitHomeworkModal(assignmentId, title) {
+    const body = `
+        <div style="margin-bottom:12px; font-weight:700; color:var(--primary);"><i class="fa-solid fa-file-signature"></i> تکلیف: ${title}</div>
+        <div class="form-group">
+            <label class="form-label">پاسخ متنی / توضیحات دانش‌آموز:</label>
+            <textarea id="sub-response" class="form-control" rows="4" placeholder="توضیحات حل تمرین یا پاسخ خود را بنویسید..."></textarea>
+        </div>
+        <div class="form-group">
+            <label class="form-label">پیوست فایل (تصویر / PDF دمو):</label>
+            <input type="file" id="sub-file" class="form-control">
+            <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">فرمت‌های مجاز: JPG, PNG, PDF (شبیه‌سازی شده)</div>
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-primary" onclick="confirmHomeworkSubmission('${assignmentId}')">ارسال نهایی تکلیف</button>
+    `;
+    openModal('ارسال پاسخ تکلیف', body, footer);
+}
+
+function confirmHomeworkSubmission(assignmentId) {
+    const responseText = document.getElementById('sub-response').value.trim();
+    const plan = DemoState.data.currentPlan;
+    const isElementary = (plan === 'elementary');
+    const studentId = isElementary ? 'std_e1' : (plan === 'highschool' ? 'std_h1' : 'trn_1');
+
+    const assignments = DemoState.data[plan].assignments || [];
+    const asgn = assignments.find(a => a.id === assignmentId);
+
+    if (asgn) {
+        if (!asgn.submissions) asgn.submissions = [];
+        asgn.submissions = asgn.submissions.filter(s => s.studentId !== studentId);
+        asgn.submissions.push({
+            studentId: studentId,
+            status: 'submitted',
+            responseText: responseText || 'تکلیف ارسال گردید.',
+            fileUrl: 'homework_attached.pdf',
+            score: null,
+            feedback: null
+        });
+        DemoState.save();
+        showToast('پاسخ تکلیف با موفقیت ارسال شد و در انتظار بررسی مدرس است.');
+    }
+    closeModal();
+    renderCurrentTabContent();
+}
+
+function viewAssignmentSubmissions(assignmentId, plan) {
+    const asgn = (DemoState.data[plan].assignments || []).find(a => a.id === assignmentId);
+    if (!asgn) return;
+
+    const subs = asgn.submissions || [];
+    const body = `
+        <h3 style="font-size:15px; margin-bottom:12px;">لیست پاسخ‌های دریافتی برای: ${asgn.title}</h3>
+        ${subs.length === 0 ? '<div style="text-align:center; padding:20px; color:var(--text-muted);">هنوز هیچ پاسخ یا تکلیفی ارسال نشده است.</div>' : `
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>کد/دانش‌آموز</th>
+                        <th>توضیحات ارسال</th>
+                        <th>وضعیت / نمره</th>
+                        <th>عملیات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${subs.map((s, idx) => `
+                        <tr>
+                            <td>${s.studentId}</td>
+                            <td>${s.responseText}</td>
+                            <td><span class="badge badge-success">${s.score || 'در انتظار تصحیح'}</span></td>
+                            <td>
+                                <button class="btn btn-outline btn-sm" onclick="openGradeSubmissionModal('${assignmentId}', '${s.studentId}', '${plan}')">
+                                    <i class="fa-solid fa-pen-to-square"></i> نمره‌دهی
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `}
+    `;
+    openModal('ارزیابی تکالیف دانش‌آموزان', body);
+}
+
+function openGradeSubmissionModal(assignmentId, studentId, plan) {
+    const isElementary = (plan === 'elementary');
+    const body = `
+        <div class="form-group">
+            <label class="form-label">${isElementary ? 'ارزیابی توصیفی:' : 'نمره عددی (از ۲۰):'}</label>
+            ${isElementary ? `
+                <select id="sub-grade-val" class="form-control">
+                    <option value="خیلی خوب">خیلی خوب</option>
+                    <option value="خوب">خوب</option>
+                    <option value="قابل قبول">قابل قبول</option>
+                    <option value="نیازمند تلاش بیشتر">نیازمند تلاش بیشتر</option>
+                </select>
+            ` : `
+                <input type="text" id="sub-grade-val" class="form-control" placeholder="مثال: ۱۸.۵">
+            `}
+        </div>
+        <div class="form-group">
+            <label class="form-label">بازخورد و بازتاب مدرس:</label>
+            <textarea id="sub-grade-feedback" class="form-control" rows="3" placeholder="آفرین، تلاش شما قابل تقدیر است..."></textarea>
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-primary" onclick="saveSubmissionGrade('${assignmentId}', '${studentId}', '${plan}')">ثبت بازخورد</button>
+    `;
+    openModal('ثبت نمره و بازخورد تکلیف', body, footer);
+}
+
+function saveSubmissionGrade(assignmentId, studentId, plan) {
+    const score = document.getElementById('sub-grade-val').value;
+    const feedback = document.getElementById('sub-grade-feedback').value.trim();
+
+    const asgn = (DemoState.data[plan].assignments || []).find(a => a.id === assignmentId);
+    if (asgn && asgn.submissions) {
+        const sub = asgn.submissions.find(s => s.studentId === studentId);
+        if (sub) {
+            sub.score = score;
+            sub.feedback = feedback;
+            DemoState.save();
+            showToast('بازخورد و نمره تکلیف با موفقیت ثبت شد.');
+        }
+    }
+    closeModal();
+    renderCurrentTabContent();
+}
+
+function openCreateExamModal(plan) {
+    const body = `
+        <div class="form-group">
+            <label class="form-label">عنوان آزمون:</label>
+            <input type="text" id="ex-title" class="form-control" placeholder="مثال: آزمون میان‌term حسابان و ریاضی">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">نام درس:</label>
+                <input type="text" id="ex-subject" class="form-control" placeholder="ریاضی / فیزیک / علوم">
+            </div>
+            <div class="form-group">
+                <label class="form-label">تاریخ آزمون:</label>
+                <input type="text" id="ex-date" class="form-control" value="۱۴۰۳/08/25">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">سوال اول (تست ۴ گزینه‌ای):</label>
+            <input type="text" id="ex-q1" class="form-control" placeholder="متن سوال تستی..." value="کدام گزینه صحیح است؟">
+        </div>
+        <div class="form-group">
+            <label class="form-label">سوال دوم (تشریحی):</label>
+            <input type="text" id="ex-q2" class="form-control" placeholder="متن سوال تشریحی..." value="پاسخ را بصورت مشروح بنویسید.">
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-primary" onclick="saveNewExam('${plan}')">ایجاد آزمون</button>
+    `;
+    openModal('طراحی و ایجاد آزمون جدید', body, footer);
+}
+
+function saveNewExam(plan) {
+    const title = document.getElementById('ex-title').value.trim();
+    const subject = document.getElementById('ex-subject').value.trim();
+    const date = document.getElementById('ex-date').value.trim();
+    const q1 = document.getElementById('ex-q1').value.trim();
+    const q2 = document.getElementById('ex-q2').value.trim();
+
+    if (!title) return showToast('عنوان آزمون را وارد نمایید.', 'error');
+
+    if (!DemoState.data[plan].exams) DemoState.data[plan].exams = [];
+
+    DemoState.data[plan].exams.push({
+        id: `ex_${Date.now()}`,
+        title: title,
+        subject: subject || 'عمومی',
+        date: date || '۱۴۰۳/08/25',
+        time: '۱۰:۰۰',
+        questions: [
+            { id: 1, text: q1 || 'سوال تستی اول', type: 'mcq', options: ['گزینه ۱', 'گزینه ۲', 'گزینه ۳', 'گزینه ۴'], correctOption: 0, points: 10 },
+            { id: 2, text: q2 || 'سوال تشریحی دوم', type: 'essay', points: 10 }
+        ],
+        responses: []
+    });
+
+    DemoState.save();
+    closeModal();
+    showToast('آزمون جدید با موفقیت طراحی شد.');
+    renderCurrentTabContent();
+}
+
+function openTakeQuizModal(examTitle) {
+    const plan = DemoState.data.currentPlan;
+    const exam = (DemoState.data[plan].exams || []).find(e => e.title === examTitle) || (DemoState.data[plan].exams || [])[0];
+
+    if (!exam) return showToast('آزمون فعال برای برگزاری یافت نشد.', 'warning');
+
+    const body = `
+        <div style="margin-bottom:12px; font-size:14px; font-weight:800; color:var(--primary);"><i class="fa-solid fa-file-pen"></i> ${exam.title} (${exam.subject})</div>
+        <form id="quiz-form">
+            ${exam.questions.map((q, idx) => `
+                <div style="background:var(--bg-main); padding:12px; border-radius:8px; margin-bottom:12px; border:1px solid var(--border-color);">
+                    <div style="font-weight:700; margin-bottom:8px;">سوال ${idx+1}: ${q.text} <span style="font-size:11px; color:var(--text-muted);">(${q.points} بارم)</span></div>
+                    ${q.type === 'mcq' ? `
+                        <div style="display:flex; flex-direction:column; gap:6px;">
+                            ${q.options.map((opt, oIdx) => `
+                                <label style="cursor:pointer; font-size:13px;">
+                                    <input type="radio" name="q_${q.id}" value="${oIdx}"> ${opt}
+                                </label>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <textarea name="q_${q.id}" class="form-control" rows="3" placeholder="پاسخ تشریحی خود را اینجا تایپ کنید..."></textarea>
+                    `}
+                </div>
+            `).join('')}
+        </form>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-success" onclick="submitQuizAnswers('${exam.id}', '${plan}')">ثبت و ارسال پاسخ‌نامه</button>
+    `;
+    openModal('شرکت در آزمون آنلاین', body, footer);
+}
+
+function submitQuizAnswers(examId, plan) {
+    const exam = (DemoState.data[plan].exams || []).find(e => e.id === examId);
+    if (!exam) return closeModal();
+
+    let autoScore = 0;
+    let totalMcqPoints = 0;
+    let hasEssay = false;
+
+    exam.questions.forEach(q => {
+        if (q.type === 'mcq') {
+            totalMcqPoints += q.points;
+            const selected = document.querySelector(`input[name="q_${q.id}"]:checked`);
+            if (selected && parseInt(selected.value) === q.correctOption) {
+                autoScore += q.points;
+            }
+        } else if (q.type === 'essay') {
+            hasEssay = true;
+        }
+    });
+
+    closeModal();
+
+    const summaryHtml = `
+        <div style="text-align:center; padding:12px;">
+            <div style="font-size:48px; color:var(--success); margin-bottom:8px;"><i class="fa-solid fa-circle-check"></i></div>
+            <h3 style="font-size:18px; font-weight:800; margin-bottom:8px;">پاسخ‌نامه شما با موفقیت ثبت شد</h3>
+            <p style="font-size:14px; margin-bottom:12px;">
+                نمره بخش تستی خودکار: <strong>${autoScore}</strong> از ${totalMcqPoints}
+            </p>
+            ${hasEssay ? `
+                <div class="alert alert-info" style="font-size:12px; text-align:right;">
+                    <i class="fa-solid fa-info-circle"></i> سوالات تشریحی نیاز به تصحیح دستی توسط استاد دارد. پس از تصحیح، نمره نهایی در کارنامه درج خواهد شد.
+                </div>
+            ` : ''}
+        </div>
+    `;
+    openModal('نتیجه آزمون', summaryHtml);
+}
+
+function triggerAiGradingModal(examTitle) {
+    showToast('سیستم هوشمند تصحیح خودکار سوالات تستی فعال گردید.', 'info');
+    openModal('دستیار تصحیح هوشمند', `
+        <div style="text-align:center; padding:16px;">
+            <i class="fa-solid fa-robot" style="font-size:40px; color:var(--primary); margin-bottom:12px;"></i>
+            <p>کلیه پاسخ برگ‌های تستی مربوط به آزمون <strong>${examTitle}</strong> با الگوریتم کلید هوشمند تصحیح گردیده و نمرات تستی ثبت گردیدند.</p>
+        </div>
+    `);
+}
+
+function openAddCounselorNoteModal() {
+    const body = `
+        <div class="form-group">
+            <label class="form-label">انتخاب دانش‌آموز:</label>
+            <select id="cn-student" class="form-control">
+                ${(DemoState.data.highschool.students || []).map(s => `<option value="${s.id}">${s.name} (${s.className})</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">سطح ریسک / نیازمندی:</label>
+            <select id="cn-risk" class="form-control">
+                <option value="low">کم / عادی</option>
+                <option value="medium">متوسط / نیازمند پیگیری</option>
+                <option value="high">بالا / ریسک افت تحصیلی شدید</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">یادداشت و توصیه مشاور:</label>
+            <textarea id="cn-note" class="form-control" rows="4" placeholder="توضیحات جلسات مشاوره و برنامه پیشنهادی..."></textarea>
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-primary" onclick="saveCounselorNote()">ثبت یادداشت مشاوره</button>
+    `;
+    openModal('ثبت پرونده و یادداشت مشاور تحصیلی', body, footer);
+}
+
+function saveCounselorNote() {
+    const studentSelect = document.getElementById('cn-student');
+    const studentId = studentSelect.value;
+    const studentName = studentSelect.options[studentSelect.selectedIndex].text.split('(')[0].trim();
+    const riskLevel = document.getElementById('cn-risk').value;
+    const note = document.getElementById('cn-note').value.trim();
+
+    if (!note) return showToast('متن یادداشت مشاوره نمی‌تواند خالی باشد.', 'error');
+
+    if (!DemoState.data.highschool.counselorNotes) DemoState.data.highschool.counselorNotes = [];
+
+    DemoState.data.highschool.counselorNotes.unshift({
+        id: `cn_${Date.now()}`,
+        studentId: studentId,
+        studentName: studentName,
+        counselorName: 'استاد علیرضا افشار',
+        date: '۱۴۰۳/08/02',
+        note: note,
+        riskLevel: riskLevel
+    });
+
+    DemoState.save();
+    closeModal();
+    showToast('پرونده مشاوره دانش‌آموز به روزرسانی گردید.');
+    renderCurrentTabContent();
+}
+
+function sendCounselorMessage() {
+    const body = `
+        <div class="form-group">
+            <label class="form-label">عنوان اطلاعیه / برنامه راهبردی:</label>
+            <input type="text" id="cm-title" class="form-control" placeholder="برنامه مطالعاتی جامع ماه جاری">
+        </div>
+        <div class="form-group">
+            <label class="form-label">متن پیام یا لینک برنامه مطالعاتی:</label>
+            <textarea id="cm-body" class="form-control" rows="4" placeholder="توضیحات برنامه و زمان‌بندی مطالعاتی..."></textarea>
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-primary" onclick="confirmSendCounselorMessage()">ارسال به دانش‌آموزان و اولیاء</button>
+    `;
+    openModal('ارسال پیام / برنامه مطالعاتی مشاور', body, footer);
+}
+
+function confirmSendCounselorMessage() {
+    const title = document.getElementById('cm-title').value.trim();
+    const body = document.getElementById('cm-body').value.trim();
+
+    if (!title) return showToast('عنوان پیام ضروری است.', 'error');
+
+    if (!DemoState.data.highschool.counselorMessages) DemoState.data.highschool.counselorMessages = [];
+
+    DemoState.data.highschool.counselorMessages.unshift({
+        id: `cm_${Date.now()}`,
+        title: title,
+        type: 'broadcast',
+        body: body || 'محتوای آموزشی متنی بارگذاری گردید.',
+        date: '۱۴۰۳/08/02'
+    });
+
+    DemoState.save();
+    closeModal();
+    showToast('برنامه راهبردی مطالعاتی برای تمام دانش‌آموزان و اولیاء ارسال گردید.');
+    renderCurrentTabContent();
+}
+
+function startCourseWizard(courseId, courseTitle, fee) {
+    const body = `
+        <div style="background:var(--bg-main); padding:12px; border-radius:8px; margin-bottom:12px;">
+            <div style="font-weight:800; color:var(--primary);">${courseTitle}</div>
+            <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">شهریه دوره: ${(fee || 0).toLocaleString('fa-IR')} تومان</div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">نام و خانوادگی متقاضی:</label>
+            <input type="text" id="wiz-name" class="form-control" placeholder="نام کامل شما">
+        </div>
+        <div class="form-group">
+            <label class="form-label">شماره همراه:</label>
+            <input type="text" id="wiz-phone" class="form-control" placeholder="۰۹۱۲XXXXXXX">
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-success" onclick="confirmCourseRegistration('${courseTitle}', ${fee || 0})">ثبت‌نام اولیه و پرداخت شهریه</button>
+    `;
+    openModal('مراحل پیش‌ثبت‌نام دوره', body, footer);
+}
+
+function confirmCourseRegistration(courseTitle, fee) {
+    const name = document.getElementById('wiz-name').value.trim();
+    const phone = document.getElementById('wiz-phone').value.trim();
+
+    if (!name || !phone) return showToast('نام و شماره همراه ضروری است.', 'error');
+
+    if (!DemoState.data.academy.registrations) DemoState.data.academy.registrations = [];
+
+    DemoState.data.academy.registrations.unshift({
+        id: `reg_${Date.now()}`,
+        applicantName: name,
+        phone: phone,
+        courseTitle: courseTitle,
+        status: 'پرداخت‌شده (دمو)',
+        date: '۱۴۰۳/08/02'
+    });
+
+    // Add trainee
+    DemoState.data.academy.trainees.push({
+        id: `trn_${Date.now()}`,
+        name: name,
+        code: `AC-${Math.floor(100 + Math.random() * 900)}`,
+        courseTitle: courseTitle,
+        status: 'فعال',
+        parentName: 'سرپرست مراجع',
+        parentPhone: phone,
+        tuitionBalance: 0,
+        paymentStatus: 'paid'
+    });
+
+    DemoState.save();
+    closeModal();
+    showToast('پیش‌ثبت‌نام و پرداخت شهریه آنلاین با موفقیت انجام شد.');
+    renderCurrentTabContent();
+}
+
+function triggerTuitionPaymentModal(balance, plan) {
+    const body = `
+        <div style="text-align:center; padding:12px;">
+            <div style="font-size:14px; color:var(--text-muted);">مبلغ مابه‌التفاوت قابل پرداخت:</div>
+            <div style="font-size:24px; font-weight:900; color:var(--primary); margin:8px 0;">${(balance || 0).toLocaleString('fa-IR')} تومان</div>
+            <div class="form-group" style="text-align:right; margin-top:16px;">
+                <label class="form-label">روش پرداخت:</label>
+                <select id="pay-method" class="form-control">
+                    <option value="online">درگاه آنلاین شتاب (شبیه‌سازی)</option>
+                    <option value="pos">دستگاه کارت‌خوان مؤسسه</option>
+                    <option value="receipt">فیش واریزی بانکی</option>
+                </select>
+            </div>
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-success" onclick="processTuitionPayment(${balance})">پرداخت موثر و دریافت رسید</button>
+    `;
+    openModal('پرداخت شهریه و تسویه حساب', body, footer);
+}
+
+function processTuitionPayment(amount) {
+    const method = document.getElementById('pay-method').options[document.getElementById('pay-method').selectedIndex].text;
+
+    if (!DemoState.data.academy.transactions) DemoState.data.academy.transactions = [];
+
+    DemoState.data.academy.transactions.unshift({
+        id: `tx_${Date.now()}`,
+        traineeName: 'کیانا طاهری',
+        courseTitle: 'پایتون مقدماتی',
+        amount: amount || 1200000,
+        date: '۱۴۰۳/08/02',
+        type: method,
+        status: 'موفق',
+        trackingCode: `TRX-${Math.floor(100000 + Math.random() * 900000)}`
+    });
+
+    // Update balance
+    const trn = (DemoState.data.academy.trainees || []).find(t => t.name === 'کیانا طاهری');
+    if (trn) {
+        trn.tuitionBalance = 0;
+        trn.paymentStatus = 'paid';
+    }
+
+    DemoState.save();
+    closeModal();
+    showToast('پرداخت با موفقیت انجام و رسید مالی صادر گردید.');
+    renderCurrentTabContent();
+}
+
+function openUploadContentModal(plan) {
+    const body = `
+        <div class="form-group">
+            <label class="form-label">عنوان محتوا / فایل آموزشی:</label>
+            <input type="text" id="cnt-title" class="form-control" placeholder="جزوه فصل اول / ویدیو آموزشی">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">نام درس:</label>
+                <input type="text" id="cnt-subject" class="form-control" placeholder="ریاضی / زبان / علوم">
+            </div>
+            <div class="form-group">
+                <label class="form-label">نوع محتوا:</label>
+                <select id="cnt-type" class="form-control">
+                    <option value="pdf">فایل PDF</option>
+                    <option value="video">ویدیو آموزشی</option>
+                    <option value="doc">سند متنی / جزوه</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">انتخاب فایل جهت آپلود (دمو):</label>
+            <input type="file" id="cnt-file" class="form-control">
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">انصراف</button>
+        <button class="btn btn-primary" onclick="saveUploadedContent('${plan}')">بارگذاری محتوا</button>
+    `;
+    openModal('آپلود محتوا و منابع آموزشی', body, footer);
+}
+
+function saveUploadedContent(plan) {
+    const title = document.getElementById('cnt-title').value.trim();
+    const subject = document.getElementById('cnt-subject').value.trim();
+    const type = document.getElementById('cnt-type').value;
+
+    if (!title) return showToast('عنوان محتوا ضروری است.', 'error');
+
+    if (!DemoState.data[plan].contents) DemoState.data[plan].contents = [];
+
+    DemoState.data[plan].contents.unshift({
+        id: `cnt_${Date.now()}`,
+        title: title,
+        subject: subject || 'عمومی',
+        type: type,
+        url: '#',
+        date: '۱۴۰۳/08/02'
+    });
+
+    DemoState.save();
+    closeModal();
+    showToast('محتوای آموزشی جدید با موفقیت در سامانه بارگذاری شد.');
+    renderCurrentTabContent();
+}
+
+
+
+
+// ==========================================
+// CSV IMPORT / EXPORT & PRINTING ENGINE
+// ==========================================
+
+function exportDataToCSV(dataType) {
+    const plan = DemoState.data.currentPlan;
+    const data = DemoState.data[plan];
+    let headers = [];
+    let rows = [];
+    let filename = `export_${dataType}_${plan}.csv`;
+
+    if (dataType === 'students' || dataType === 'trainees') {
+        headers = ['شناسه', 'نام و خانوادگی', 'کد دانش‌آموزی', 'نام ولی', 'تلفن ولی', 'وضعیت'];
+        const list = data.students || data.trainees || [];
+        rows = list.map(s => [s.id, s.name, s.code || '', s.parentName || '', s.parentPhone || '', s.status || 'فعال']);
+    } else if (dataType === 'grades') {
+        headers = ['شناسه', 'دانش‌آموز / هنرجو', 'درس / عنوان', 'نمره / ارزیابی', 'تاریخ'];
+        const list = data.grades || [];
+        rows = list.map(g => [g.id, g.studentId || '', g.subject || '', g.score || '', g.date || '']);
+    } else if (dataType === 'attendance') {
+        headers = ['شناسه', 'تاریخ', 'دانش‌آموز', 'وضعیت'];
+        const list = data.attendance || [];
+        rows = list.map(a => [a.id, a.date || '', a.studentName || a.traineeName || a.studentId || '', a.status || '']);
+    } else {
+        headers = ['شناسه', 'عنوان', 'تاریخ'];
+        rows = [['1', 'نمونه داده دمو', '۱۴۰۳/08/02']];
+    }
+
+    let csvContent = '\uFEFF'; // UTF-8 BOM for Persian Excel support
+    csvContent += headers.map(h => `"${h.replace(/"/g, '""')}"`).join(',') + '\r\n';
+    rows.forEach(r => {
+        csvContent += r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',') + '\r\n';
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`خروجی CSV با موفقیت دریافت شد: ${filename}`);
+}
+
+function handleCsvFileImport(type) {
+    const fileInput = document.getElementById('csv-file-input');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        return showToast('لطفاً ابتدا یک فایل CSV انتخاب کنید.', 'warning');
+    }
+
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        const textContent = e.target.result;
+        const lines = textContent.split(/\r\n|\n/);
+        if (lines.length <= 1) {
+            return showToast('فایل انتخابی خالی است یا فرمت معتبر ندارد.', 'error');
+        }
+
+        const plan = DemoState.data.currentPlan;
+        let count = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            const cols = line.split(',').map(c => c.replace(/^"|"$/g, '').trim());
+            if (cols.length >= 2) {
+                if (plan === 'academy' && (type === 'دانش‌آموزان' || type === 'هنرجویان')) {
+                    DemoState.data.academy.trainees.push({
+                        id: `trn_imp_${Date.now()}_${i}`,
+                        name: cols[1] || cols[0],
+                        code: cols[2] || `AC-${100+i}`,
+                        parentName: cols[3] || 'سرپرست',
+                        parentPhone: cols[4] || '۰۹۱۲',
+                        status: 'فعال'
+                    });
+                } else if (type === 'دانش‌آموزان' || type === 'مدیریت دانش‌آموزان') {
+                    DemoState.data[plan].students.push({
+                        id: `std_imp_${Date.now()}_${i}`,
+                        name: cols[1] || cols[0],
+                        code: cols[2] || `CODE-${100+i}`,
+                        parentName: cols[3] || 'سرپرست',
+                        parentPhone: cols[4] || '۰۹۱۲',
+                        status: 'فعال'
+                    });
+                }
+                count++;
+            }
+        }
+
+        DemoState.save();
+        closeModal();
+        showToast(`تعداد ${count} ردیف با موفقیت وارد سامانه گردید.`);
+        renderCurrentTabContent();
+    };
+
+    reader.readAsText(file, 'UTF-8');
+}
+
+
+
+function renderCurrentTabContent() {
             const container = document.getElementById('main-content');
             container.innerHTML = '';
 
